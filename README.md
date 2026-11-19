@@ -1,4 +1,4 @@
-# Group 40 - LY PROJECT 
+# Group 21 - Final Project Group 21, Btech IT Aissms IOIT
 # Optimization of Sign Language Recognition System using Knowledge Distillation and Deep Learning
 
 # ASL Gesture Recognition with Knowledge Distillation
