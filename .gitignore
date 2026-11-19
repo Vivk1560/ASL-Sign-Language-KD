@@ -8,12 +8,24 @@ Datasets/
 *.docx
 .ipynb_checkpoints/
 
-# --- Partition 1: preprocessing ---
-# Raw + processed data are never committed (use data/README.md for the layout).
+# Raw dataset and generated preprocessing outputs
 data/*
 !data/README.md
-.pytest_cache/
-*.log
-*.tmp
+!data/processed/
+data/processed/*
+
+# Keep reproducible preprocessing evidence
+!data/processed/manifests/
+!data/processed/metadata/
+!data/processed/reports/
+
+# Do not commit generated image data or logs
+data/processed/augmented/
+data/processed/reports/logs/
+data/processed/reports/duplicate_diagnostics/
 
 .venv/
+# Environment variables and secrets
+.env
+.env.*
+!.env.example

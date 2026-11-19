@@ -1,0 +1,111 @@
+{
+  "checks": [
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "manifests_exist",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "splits_not_empty",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "manifest_consistency",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "labels_valid_and_consistent",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "labels_json_matches_config",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "every_class_in_every_split",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "no_path_overlap",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "no_exact_duplicate_leakage",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "no_group_leakage",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "no_duplicate_rows_within_split",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "files_exist",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "images_decodable",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "unexpected_class_folders",
+      "passed": true,
+      "severity": "warning"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "no_augmentation_leakage",
+      "passed": true,
+      "severity": "critical"
+    },
+    {
+      "detail": "ok",
+      "items": [],
+      "name": "raw_dataset_unchanged",
+      "passed": true,
+      "severity": "critical"
+    }
+  ],
+  "critical_failures": [],
+  "ok": true
+}

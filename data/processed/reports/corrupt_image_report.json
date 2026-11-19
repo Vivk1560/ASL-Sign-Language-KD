@@ -1,0 +1,52 @@
+{
+  "excluded": 0,
+  "excluded_by_reason": {},
+  "excluded_files": [],
+  "not_selected": 0,
+  "note": "Excluded files are only listed here; nothing was deleted or modified.",
+  "selected_classes_missing_folder": [],
+  "selected_classes_without_valid_images": [],
+  "thresholds": {
+    "max_image_dim": 8192,
+    "min_image_dim": 16,
+    "supported_extensions": [
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".bmp"
+    ]
+  },
+  "total_records": 87000,
+  "valid": 87000,
+  "valid_per_class": {
+    "A": 3000,
+    "B": 3000,
+    "C": 3000,
+    "D": 3000,
+    "E": 3000,
+    "F": 3000,
+    "G": 3000,
+    "H": 3000,
+    "I": 3000,
+    "J": 3000,
+    "K": 3000,
+    "L": 3000,
+    "M": 3000,
+    "N": 3000,
+    "O": 3000,
+    "P": 3000,
+    "Q": 3000,
+    "R": 3000,
+    "S": 3000,
+    "T": 3000,
+    "U": 3000,
+    "V": 3000,
+    "W": 3000,
+    "X": 3000,
+    "Y": 3000,
+    "Z": 3000,
+    "del": 3000,
+    "nothing": 3000,
+    "space": 3000
+  }
+}

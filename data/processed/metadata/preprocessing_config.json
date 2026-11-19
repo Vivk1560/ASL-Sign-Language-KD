@@ -1,0 +1,59 @@
+{
+  "augmentation": {
+    "brightness_range": [
+      0.75,
+      1.25
+    ],
+    "channel_gain": 0.05,
+    "contrast_range": [
+      0.75,
+      1.25
+    ],
+    "occlusion_area_frac": [
+      0.02,
+      0.1
+    ],
+    "occlusion_max_holes": 2,
+    "occlusion_prob": 0.2,
+    "offline_copies_per_image": 2,
+    "offline_enabled": false,
+    "offline_jpeg_quality": 95,
+    "rotation_deg": 15.0,
+    "saturation_range": [
+      0.8,
+      1.2
+    ],
+    "scale_range": [
+      0.9,
+      1.1
+    ],
+    "translate_frac": 0.08
+  },
+  "class_set": "29",
+  "decode_check_in_validation": true,
+  "generate_visualizations": true,
+  "image_extensions": [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp"
+  ],
+  "image_size": 224,
+  "kaggle_dataset": "grassknoted/asl-alphabet",
+  "max_image_dim": 8192,
+  "min_class_folders_to_detect": 3,
+  "min_image_dim": 16,
+  "near_duplicate_detection": true,
+  "near_duplicate_hamming": 4,
+  "processed_dir": "C:\\Users\\vivaa\\Desktop\\ASL\\ASL-Sign-Language-KD-Vivaan\\data\\processed",
+  "raw_dir": "C:\\Users\\vivaa\\Desktop\\ASL\\ASL-Sign-Language-KD-Vivaan\\data\\raw",
+  "samples_per_class": 3,
+  "seed": 42,
+  "split_ratios": [
+    0.7,
+    0.15,
+    0.15
+  ],
+  "split_tolerance": 0.05,
+  "workers": 8
+}
