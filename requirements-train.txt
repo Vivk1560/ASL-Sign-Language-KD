@@ -1,0 +1,16 @@
+# Extra dependencies for development, testing and the later training/evaluation partitions.
+# Preprocessing itself needs only numpy, pillow and matplotlib (already in requirements.txt).
+-r requirements.txt
+
+# Optional: Kaggle API download (python -m preprocessing.main --download)
+kaggle>=1.6
+
+# Tests (Partition 1)
+pytest>=8.0
+
+# Reported as missing for the training notebooks in the Phase-1 audit (used from Partition 3 on).
+# Lower bounds only: exact pins have not been verified on the target Windows / Python 3.11.9 machine.
+pandas>=2.2
+scikit-learn>=1.5
+seaborn>=0.13
+tqdm>=4.66

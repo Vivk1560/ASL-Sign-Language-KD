@@ -1,0 +1,19 @@
+venv/
+__pycache__/
+*.zip
+archive/
+Datasets/
+*.pdf
+*.doc
+*.docx
+.ipynb_checkpoints/
+
+# --- Partition 1: preprocessing ---
+# Raw + processed data are never committed (use data/README.md for the layout).
+data/*
+!data/README.md
+.pytest_cache/
+*.log
+*.tmp
+
+.venv/
