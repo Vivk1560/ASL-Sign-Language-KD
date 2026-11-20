@@ -2,7 +2,13 @@
 
 Nothing is deleted. Every valid image receives a ``group_id``; images that are
 exact or near duplicates share one, so splitting can keep them together.
-Near-duplicates are compared *within a class* using single-linkage grouping.
+Near-duplicates are compared *within a class* using anchor (leader) clustering:
+an image joins the nearest earlier anchor within the Hamming threshold, otherwise
+it becomes a new anchor. Every member is therefore within ``threshold`` of its
+group's anchor (pairwise diameter <= 2 * threshold), so transitive "chaining"
+(A~B, B~C, A far from C) cannot grow a group without bound. The previous
+single-linkage/Union-Find rule produced groups of up to 1,937 images on the
+Kaggle ASL data (video-frame drift links thousands of different frames).
 """
 
 from __future__ import annotations
@@ -83,6 +89,31 @@ def near_pairs(hashes: np.ndarray, threshold: int):
                 yield start + r, c
 
 
+def anchor_groups(hashes: np.ndarray, threshold: int) -> np.ndarray:
+    """Deterministic anchor (leader) clustering on 64-bit hashes.
+
+    Items are processed in the given order. Each item joins the *nearest* existing
+    anchor if its Hamming distance is <= ``threshold`` (ties -> earliest anchor);
+    otherwise it becomes a new anchor. Returns, per item, the index (into
+    ``hashes``) of its anchor. Guarantees d(member, anchor) <= threshold.
+    """
+    n = len(hashes)
+    anchor_of = np.zeros(n, dtype=np.int64)
+    anchors = np.empty(n, dtype=np.uint64)  # hashes of anchors found so far
+    anchor_idx: list[int] = []
+    for i in range(n):
+        if anchor_idx:
+            dist = _popcount64(anchors[:len(anchor_idx)] ^ hashes[i])
+            j = int(np.argmin(dist))  # argmin returns first minimum -> deterministic
+            if dist[j] <= threshold:
+                anchor_of[i] = anchor_idx[j]
+                continue
+        anchors[len(anchor_idx)] = hashes[i]
+        anchor_idx.append(i)
+        anchor_of[i] = i
+    return anchor_of
+
+
 def assign_duplicate_groups(cfg: PreprocessConfig, records: list[ImageRecord]) -> dict[str, Any]:
     """Resolve label conflicts, build groups, set group ids, return the report."""
     # Exact duplicates carrying different labels cannot be split safely -> exclude + report.
@@ -111,9 +142,22 @@ def assign_duplicate_groups(cfg: PreprocessConfig, records: list[ImageRecord]) -
 
     if cfg.near_duplicate_detection:
         for idxs in by_class.values():
-            hv = np.array([int(valid[i].dhash, 16) for i in idxs], dtype=np.uint64)
-            for a, b in near_pairs(hv, cfg.near_duplicate_hamming):
-                uf.union(idxs[a], idxs[b])
+            # Identical dHash (distance 0) is always grouped, as are exact copies, so
+            # cluster one representative per distinct hash and attach the rest to it.
+            first_by_hash: dict[str, int] = {}
+            reps: list[int] = []
+            for i in idxs:
+                h = valid[i].dhash
+                if h in first_by_hash:
+                    uf.union(first_by_hash[h], i)
+                else:
+                    first_by_hash[h] = i
+                    reps.append(i)
+            hv = np.array([int(valid[i].dhash, 16) for i in reps], dtype=np.uint64)
+            anchor_of = anchor_groups(hv, cfg.near_duplicate_hamming)
+            for pos, a in enumerate(anchor_of.tolist()):
+                if a != pos:
+                    uf.union(reps[a], reps[pos])
 
     members: dict[int, list[int]] = defaultdict(list)
     for i in range(len(valid)):
@@ -139,6 +183,12 @@ def assign_duplicate_groups(cfg: PreprocessConfig, records: list[ImageRecord]) -
                           "images_in_duplicate_groups": sum(c for c in gids.values() if c > 1),
                           "largest_group": max(gids.values()) if gids else 0}
     largest = sorted(groups_out, key=lambda g: -g["size"])[:10]
+    oversized = []
+    for cls, info in per_class.items():
+        limit = cfg.max_group_fraction * info["images"]
+        if info["largest_group"] > limit:
+            oversized.append({"class_name": cls, "largest_group": info["largest_group"],
+                              "limit": round(limit, 1)})
     report = {
         "images_considered": len(valid),
         "total_groups": len(ordered),
@@ -149,10 +199,14 @@ def assign_duplicate_groups(cfg: PreprocessConfig, records: list[ImageRecord]) -
         "near_duplicate_detection": cfg.near_duplicate_detection,
         "near_duplicate_hamming_threshold": cfg.near_duplicate_hamming,
         "hash": "sha256 (exact) + 64-bit dHash 8x8 (near), compared within class",
+        "near_duplicate_grouping": "anchor (leader) clustering; member within threshold of anchor",
         "label_conflicts": conflicts,
         "largest_groups": [{k: g[k] for k in ("group_id", "type", "size", "class_name")}
                            for g in largest],
         "per_class": per_class,
+        "max_group_size": max(sizes) if sizes else 0,
+        "max_group_fraction": cfg.max_group_fraction,
+        "oversized_groups": oversized,
         "groups": groups_out,
         "note": "No image was deleted; groups are kept together by the splitter.",
     }

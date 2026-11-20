@@ -12,6 +12,7 @@ from PIL import Image
 from .config import SPLIT_NAMES, PreprocessConfig
 from .data_splitting import MANIFEST_FIELDS
 from .dataset_inspection import compute_raw_fingerprint
+from .external_test import ExternalTestSet
 from .labels import labels_mismatches
 from .records import is_within, read_csv
 
@@ -68,9 +69,33 @@ def _decodable(path: Path) -> bool:
         return False
 
 
+def _check_external_isolation(
+    rep: ValidationReport, cfg: PreprocessConfig,
+    manifests: dict[str, list[dict[str, str]]], external: ExternalTestSet | None,
+) -> None:
+    """``no_external_test_sha256_leakage``: no official external SHA-256 in any split manifest.
+
+    ``manifests`` were re-read from the CSV files on disk. If the external set cannot be
+    inspected the check never passes silently: it FAILS (critical if
+    ``cfg.require_external_test`` else warning) with an explicit NOT VERIFIED message.
+    """
+    name = "no_external_test_sha256_leakage"
+    if external is None or not external.found or not external.files:
+        rep.checks.append(CheckResult(
+            name, "critical" if cfg.require_external_test else "warning", False,
+            "NOT VERIFIED: official external test set unavailable, isolation cannot be checked",
+            ["external test folder not found or empty"]))
+        return
+    by_sha = external.files_by_sha()
+    leaks = [f"external {ef.filename} found in {s}: {r['image_path']}"
+             for s in SPLIT_NAMES for r in manifests[s] for ef in by_sha.get(r["sha256"], ())]
+    rep.add(name, "critical", leaks, f"ok ({len(external.files)} external files, 0 overlaps)")
+
+
 def validate_outputs(
     cfg: PreprocessConfig, class_root: Path, labels: dict[str, Any],
     unexpected_folders: list[str], raw_fingerprint_before: str | None = None,
+    external_test: ExternalTestSet | None = None,
 ) -> ValidationReport:
     """Run every check against what is on disk (manifests are re-read from CSV)."""
     rep = ValidationReport()
@@ -122,6 +147,18 @@ def validate_outputs(
                     leaks.append(f"{key} {v[:16]} in {owner[v]} and {s}")
                 owner.setdefault(v, s)
         rep.add(name, "critical", leaks)
+    # Grouping sanity: leakage checks pass trivially if one huge group swallows a class,
+    # so also bound the largest group per class (guards against transitive chaining).
+    per_cls: dict[str, int] = {}
+    biggest: dict[str, int] = {}
+    for s in SPLIT_NAMES:
+        for r in manifests[s]:
+            per_cls[r["class_name"]] = per_cls.get(r["class_name"], 0) + 1
+            biggest[r["class_name"]] = max(biggest.get(r["class_name"], 0), int(r["group_size"]))
+    rep.add("group_size_sane", "critical",
+            [f"class {c}: largest group {biggest[c]} > {cfg.max_group_fraction:.0%} of {per_cls[c]} images"
+             for c in sorted(per_cls) if biggest[c] > cfg.max_group_fraction * per_cls[c]])
+    _check_external_isolation(rep, cfg, manifests, external_test)
     dup_within = [f"{s}: duplicate path" for s in SPLIT_NAMES
                   if len({r['image_path'] for r in manifests[s]}) != len(manifests[s])]
     rep.add("no_duplicate_rows_within_split", "critical", dup_within)

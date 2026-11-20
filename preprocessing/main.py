@@ -28,7 +28,7 @@ import PIL
 from . import __version__
 from .config import PreprocessConfig, load_config
 from .data_augmentation import TrainAugmentation, generate_offline_augmentations
-from .data_cleaning import clean_records, write_cleaning_report
+from .data_cleaning import clean_records, refresh_cleaning_report, write_cleaning_report
 from .data_splitting import build_splits, write_manifests
 from .data_visualization import (plot_class_distribution, plot_dataset_summary,
                                  plot_image_dimensions, plot_sample_images,
@@ -36,6 +36,8 @@ from .data_visualization import (plot_class_distribution, plot_dataset_summary,
 from .dataset_inspection import (compute_raw_fingerprint, enumerate_records, inspect_dataset)
 from .dataset_validation import validate_outputs
 from .download_dataset import ensure_dataset
+from .external_test import (build_external_test_manifest, exclude_external_overlaps,
+                            load_external_test_set)
 from .duplicate_detection import (assign_duplicate_groups, compute_hashes,
                                   write_duplicate_reports)
 from .labels import write_labels, load_labels
@@ -124,11 +126,20 @@ def run_pipeline(cfg: PreprocessConfig, *, download: bool = False, extract_zip: 
     # 4. clean
     _stage(4, "Validate image files")
     cleaning = clean_records(cfg, class_root, records)
-    write_cleaning_report(cfg, cleaning)
 
-    # 5. duplicates
-    _stage(5, "Detect exact and near duplicates")
+    # 5. hashes -> external-test exclusion -> duplicate grouping (order matters)
+    _stage(5, "Hash images, exclude official external-test copies, detect duplicates")
     compute_hashes(cfg, class_root, records)
+    external = load_external_test_set(cfg, cfg.raw_dir)  # official files hashed ONCE, reused below
+    if not external.found:
+        msg = "Official external test folder not found: external isolation cannot be verified."
+        if cfg.require_external_test:
+            LOG.error(msg + " (--require-external-test is set)")
+            return EXIT_FAILED
+        LOG.warning(msg)
+    ext_excl = exclude_external_overlaps(cfg, records, external)
+    cleaning = refresh_cleaning_report(cfg, class_root, records, ext_excl["_details"])
+    write_cleaning_report(cfg, cleaning)  # final state, after external exclusions
     duplicates = assign_duplicate_groups(cfg, records)
     write_duplicate_reports(cfg, duplicates)
 
@@ -170,10 +181,17 @@ def run_pipeline(cfg: PreprocessConfig, *, download: bool = False, extract_zip: 
     else:
         LOG.info("On-the-fly augmentation selected (TrainAugmentation); no offline images written.")
 
+    # 9b. external manifest + isolation status (reads the split manifests just written)
+    external_report: dict[str, Any] = {}
+    try:
+        external_report = build_external_test_manifest(cfg, cfg.raw_dir, external=external)
+    except Exception as exc:  # noqa: BLE001 - report step; the critical check is in validation
+        LOG.warning("External test manifest skipped: %s", exc)
+
     # 10. validation
     _stage(10, "Validate processed outputs")
     report = validate_outputs(cfg, class_root, labels, summary["unexpected_folders"],
-                              fingerprint_before)
+                              fingerprint_before, external_test=external)
     write_json(cfg.reports_dir / "dataset_validation_report.json", report.to_dict())
     if not report.ok:
         failed_dir = cfg.manifests_dir / "_failed_validation"
@@ -203,6 +221,13 @@ def run_pipeline(cfg: PreprocessConfig, *, download: bool = False, extract_zip: 
         "environment": {"python": platform.python_version(), "platform": platform.platform(),
                         "numpy": np.__version__, "pillow": PIL.__version__,
                         "pipeline_version": __version__},
+        "external_test": {
+            "found": external.found, "files_examined": len(external.files),
+            "internal_records_excluded": ext_excl["total_internal_records_excluded"],
+            "isolation_checked": external_report.get("isolation_checked", False),
+            "isolation_passed": external_report.get("isolation_passed"),
+            "overlap_count": external_report.get("overlap_count"),
+            "status": external_report.get("status")},
         "validation_ok": report.ok,
     }
     write_json(cfg.summary_path, final)
@@ -224,6 +249,8 @@ def _markdown_report(f: dict[str, Any]) -> str:
         f"- Class set: {f['class_handling']['class_set']} ({len(f['class_handling']['classes'])} classes)",
         f"- Total files: {f['total_files']}; valid: {f['cleaning']['valid']}; "
         f"excluded: {f['cleaning']['excluded']}; not selected: {f['cleaning']['not_selected']}",
+        f"- External test: found={f['external_test']['found']}, internal copies excluded="
+        f"{f['external_test']['internal_records_excluded']}, status={f['external_test']['status']}",
         f"- Duplicate groups (size>1): {f['duplicates']['duplicate_groups']} covering "
         f"{f['duplicates']['images_in_duplicate_groups']} images",
         f"- Split sizes: train={s['train']}, validation={s['validation']}, test={s['test']}",
@@ -238,7 +265,7 @@ def _markdown_report(f: dict[str, Any]) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m preprocessing.main",
-                                description="ASL dataset preprocessing pipeline (Partition 1)")
+                                description="ASL dataset preprocessing pipeline (Partition 1-2)")
     p.add_argument("--raw-dir", type=Path, help="dataset location (default: data/raw)")
     p.add_argument("--processed-dir", type=Path, help="output location (default: data/processed)")
     p.add_argument("--seed", type=int)
@@ -254,6 +281,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--augment-copies", type=int, help="offline copies per train image")
     p.add_argument("--skip-visualization", action="store_true")
     p.add_argument("--no-decode-validation", action="store_true")
+    p.add_argument("--require-external-test", action="store_true",
+                   help="fail if the official external test folder is missing (isolation unverifiable)")
     p.add_argument("--force", action="store_true",
                    help="archive previous outputs and regenerate if dataset/config changed")
     p.add_argument("--log-level", default="INFO")
@@ -269,6 +298,8 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.no_near_duplicates:
         overrides["near_duplicate_detection"] = False
+    if args.require_external_test:
+        overrides["require_external_test"] = True
     if args.skip_visualization:
         overrides["generate_visualizations"] = False
     if args.no_decode_validation:

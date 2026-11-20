@@ -12,7 +12,7 @@ from PIL import Image
 
 from .config import PreprocessConfig
 from .labels import canonical_class_name
-from .records import (STATUS_EXCLUDED, STATUS_NOT_SELECTED, STATUS_VALID, ImageRecord,
+from .records import (R_EXTERNAL_TEST, STATUS_EXCLUDED, STATUS_NOT_SELECTED, STATUS_VALID, ImageRecord,
                       write_csv, write_json)
 
 LOG = logging.getLogger(__name__)
@@ -76,7 +76,22 @@ def clean_records(
     selected = frozenset(cfg.classes)
     with ThreadPoolExecutor(max_workers=cfg.workers) as pool:
         list(pool.map(_classify, ((cfg, Path(class_root), r, selected) for r in records)))
+    return build_cleaning_report(cfg, class_root, records)
 
+
+def refresh_cleaning_report(
+    cfg: PreprocessConfig, class_root: Path, records: list[ImageRecord],
+    details: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Rebuild the report from the *current* record statuses (e.g. after external-test
+    exclusions) without re-reading any image. ``details`` maps rel_path -> detail text."""
+    _DETAILS.update(details or {})
+    return build_cleaning_report(cfg, class_root, records)
+
+
+def build_cleaning_report(
+    cfg: PreprocessConfig, class_root: Path, records: list[ImageRecord]
+) -> dict[str, Any]:
     excluded = [
         {"image_path": r.rel_path, "class_name": r.class_name or r.class_folder,
          "reason": r.reason, "detail": _DETAILS.get(r.rel_path, "")}
@@ -96,13 +111,18 @@ def clean_records(
         "excluded": len(excluded),
         "not_selected": sum(1 for r in records if r.status == STATUS_NOT_SELECTED),
         "excluded_by_reason": dict(sorted(by_reason.items())),
+        "external_test_exact_duplicate_count": by_reason.get(R_EXTERNAL_TEST, 0),
+        "external_test_exact_duplicate_paths": sorted(
+            e["image_path"] for e in excluded if e["reason"] == R_EXTERNAL_TEST),
         "valid_per_class": dict(sorted(valid_per_class.items())),
         "selected_classes_without_valid_images": empty_folders,
         "selected_classes_missing_folder": missing_folders,
         "thresholds": {"min_image_dim": cfg.min_image_dim, "max_image_dim": cfg.max_image_dim,
                        "supported_extensions": list(cfg.image_extensions)},
         "excluded_files": excluded,
-        "note": "Excluded files are only listed here; nothing was deleted or modified.",
+        "note": "Excluded files are only listed here; nothing was deleted or modified. "
+                "external_test_exact_duplicate = internal copy of an official external test image "
+                "(valid file, excluded so the external test set stays isolated; not corrupt).",
     }
     LOG.info("Cleaning: %d valid, %d excluded (%s), %d not selected",
              report["valid"], report["excluded"], dict(by_reason), report["not_selected"])

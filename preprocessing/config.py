@@ -77,10 +77,14 @@ class PreprocessConfig:
     min_class_folders_to_detect: int = 3
     near_duplicate_detection: bool = True
     near_duplicate_hamming: int = 4
+    max_group_fraction: float = 0.10  # validation fails if one group holds > this share of a class
     samples_per_class: int = 3
     workers: int = field(default_factory=_default_workers)
     decode_check_in_validation: bool = True
     generate_visualizations: bool = True
+    # If True, a missing official external test folder is a critical failure (isolation cannot be
+    # verified). If False it is reported as an explicit NOT-VERIFIED warning. Does not change outputs.
+    require_external_test: bool = False
     augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
 
     # ------------------------------------------------------------------ paths
@@ -159,6 +163,8 @@ class PreprocessConfig:
             raise ValueError(f"split_ratios must sum to 1.0, got {sum(self.split_ratios)}")
         if not 0 <= self.near_duplicate_hamming <= 16:
             raise ValueError("near_duplicate_hamming must be in [0, 16]")
+        if not 0 < self.max_group_fraction <= 1:
+            raise ValueError("max_group_fraction must be in (0, 1]")
         if self.min_image_dim < 1 or self.max_image_dim < self.min_image_dim:
             raise ValueError("invalid image dimension limits")
         if self.workers < 1:
@@ -193,7 +199,7 @@ class PreprocessConfig:
         """Hash of every setting that changes generated outputs (not paths/workers)."""
         data = self.to_dict()
         for volatile in ("raw_dir", "processed_dir", "workers", "generate_visualizations",
-                         "decode_check_in_validation", "kaggle_dataset"):
+                         "decode_check_in_validation", "kaggle_dataset", "require_external_test"):
             data.pop(volatile, None)
         blob = json.dumps(data, sort_keys=True, default=list)
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()

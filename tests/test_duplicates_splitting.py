@@ -123,3 +123,138 @@ def test_dhash_stable_and_different():
     from tests.conftest import random_image
     assert dhash_image(random_image(1)) == dhash_image(random_image(1))
     assert dhash_image(random_image(1)) != dhash_image(random_image(2))
+
+
+# ---------------------------------------------------------------- anchor grouping (Partition 1 correction)
+from preprocessing.config import load_config  # noqa: E402
+from preprocessing.duplicate_detection import anchor_groups  # noqa: E402
+from preprocessing.records import STATUS_VALID, ImageRecord  # noqa: E402
+
+
+def _rec(path, cls, sha, dhash):
+    return ImageRecord(rel_path=path, class_folder=cls, class_name=cls, ext=".jpg", size_bytes=1,
+                       width=200, height=200, header_ok=True, status=STATUS_VALID,
+                       sha256=sha, dhash=f"{dhash:016x}")
+
+
+def _mk(specs, tmp_path, **kw):
+    cfg = load_config(raw_dir=tmp_path / "r", processed_dir=tmp_path / "p", workers=1, **kw)
+    recs = [_rec(p, c, s, h) for p, c, s, h in specs]
+    return cfg, recs
+
+
+def test_chaining_is_bounded_a_b_c(tmp_path):
+    # d(A,B)=4, d(B,C)=4, d(A,C)=8: single linkage would merge all three.
+    a, b, c = 0, 0b1111, 0b11111111
+    cfg, recs = _mk([("A/1.jpg", "A", "s1", a), ("A/2.jpg", "A", "s2", b),
+                     ("A/3.jpg", "A", "s3", c)], tmp_path)
+    assign_duplicate_groups(cfg, recs)
+    g = {r.rel_path: r.group_id for r in recs}
+    assert g["A/1.jpg"] == g["A/2.jpg"]      # A~B grouped
+    assert g["A/3.jpg"] != g["A/1.jpg"]      # C not chained to A
+
+
+def test_long_chain_does_not_form_one_group(tmp_path):
+    # h_i = i low bits set: neighbours differ by 1 bit, so single linkage (threshold 4)
+    # would merge all 40 into one group. Anchor grouping caps each group at 5 members.
+    specs = [(f"A/{i:03d}.jpg", "A", f"s{i}", (1 << i) - 1) for i in range(40)]
+    cfg, recs = _mk(specs, tmp_path)
+    rep = assign_duplicate_groups(cfg, recs)
+    assert rep["max_group_size"] <= 5
+    assert rep["total_groups"] >= 8
+
+
+def test_members_within_threshold_of_anchor(tmp_path):
+    rng = np.random.default_rng(0)
+    base = rng.integers(0, 2 ** 63, size=300, dtype=np.uint64)
+    anchor_of = anchor_groups(base, 4)
+    for i, a in enumerate(anchor_of):
+        assert bin(int(base[i]) ^ int(base[a])).count("1") <= 4
+
+
+def test_identical_dhash_always_same_group_and_deterministic(tmp_path):
+    specs = [(f"A/{i}.jpg", "A", f"s{i}", 0xABCDEF if i % 2 else 0x123456) for i in range(10)]
+    cfg, recs = _mk(specs, tmp_path)
+    assign_duplicate_groups(cfg, recs)
+    first = [r.group_id for r in recs]
+    cfg2, recs2 = _mk(specs, tmp_path)
+    assign_duplicate_groups(cfg2, recs2)
+    assert first == [r.group_id for r in recs2]
+    assert len({r.group_id for r in recs if r.dhash.endswith("abcdef")}) == 1
+
+
+def test_near_duplicates_never_merge_across_classes(tmp_path):
+    cfg, recs = _mk([("A/1.jpg", "A", "s1", 0b1), ("B/1.jpg", "B", "s2", 0b1)], tmp_path)
+    assign_duplicate_groups(cfg, recs)
+    assert recs[0].group_id != recs[1].group_id
+
+
+def test_exact_duplicates_stay_grouped_even_with_far_hash_noise(tmp_path):
+    cfg, recs = _mk([("A/1.jpg", "A", "same", 0), ("A/2.jpg", "A", "same", 0),
+                     ("A/3.jpg", "A", "other", 2 ** 40 - 1)], tmp_path)
+    rep = assign_duplicate_groups(cfg, recs)
+    assert recs[0].group_id == recs[1].group_id != recs[2].group_id
+    assert rep["exact_duplicate_extra_copies"] == 1
+
+
+def test_cross_class_exact_conflict_excluded_and_not_in_groups(tmp_path):
+    cfg, recs = _mk([("A/1.jpg", "A", "dup", 5), ("B/1.jpg", "B", "dup", 5),
+                     ("A/2.jpg", "A", "u", 999)], tmp_path)
+    rep = assign_duplicate_groups(cfg, recs)
+    assert len(rep["label_conflicts"]) == 2
+    assert [r.status for r in recs] == ["excluded", "excluded", "valid"]
+    assert rep["images_considered"] == 1
+
+
+def test_empty_and_singleton_inputs(tmp_path):
+    cfg, _ = _mk([], tmp_path)
+    rep = assign_duplicate_groups(cfg, [])
+    assert rep["images_considered"] == 0 and rep["max_group_size"] == 0
+    cfg, recs = _mk([("A/1.jpg", "A", "s", 1)], tmp_path)
+    rep = assign_duplicate_groups(cfg, recs)
+    assert rep["duplicate_groups"] == 0 and recs[0].group_size == 1
+    assert len(anchor_groups(np.array([], dtype=np.uint64), 4)) == 0
+
+
+def test_oversized_group_is_reported(tmp_path):
+    specs = [(f"A/{i}.jpg", "A", f"s{i}", i % 2) for i in range(50)]  # all within 4 bits
+    cfg, recs = _mk(specs, tmp_path, max_group_fraction=0.1)
+    rep = assign_duplicate_groups(cfg, recs)
+    assert rep["oversized_groups"] and rep["oversized_groups"][0]["class_name"] == "A"
+
+
+def test_split_per_class_distribution_and_no_group_leakage(tmp_path):
+    rng = np.random.default_rng(1)
+    specs = []
+    for cls in ("A", "B"):
+        for i in range(600):
+            specs.append((f"{cls}/{i:04d}.jpg", cls, f"{cls}{i}", int(rng.integers(0, 2 ** 63))))
+    cfg, recs = _mk(specs, tmp_path, class_set="26")
+    assign_duplicate_groups(cfg, recs)
+    s = build_splits(cfg, recs)
+    owner = {}
+    for split, rows in s["rows"].items():
+        for r in rows:
+            owner.setdefault(r["group_id"], set()).add(split)
+    assert all(len(v) == 1 for v in owner.values())
+    for cls in ("A", "B"):
+        c = s["per_class"][cls]
+        t = sum(c.values())
+        assert abs(c["train"] / t - 0.70) < 0.05 and abs(c["validation"] / t - 0.15) < 0.05
+
+
+def test_validation_flags_oversized_group(cfg, dataset):
+    from preprocessing.dataset_validation import validate_outputs
+    from preprocessing.labels import write_labels, load_labels
+    root = class_root_of(dataset)
+    records = _prepare(cfg, root)
+    assign_duplicate_groups(cfg, records)
+    s = build_splits(cfg, records)
+    for rows in s["rows"].values():
+        for r in rows:
+            if r["class_name"] == "A":
+                r["group_size"] = 13  # 13 of 14 images claimed in one group
+    write_manifests(cfg, s["rows"])
+    write_labels(cfg)
+    rep = validate_outputs(cfg, root, load_labels(cfg.labels_path), [])
+    assert "group_size_sane" in [c.name for c in rep.critical_failures]

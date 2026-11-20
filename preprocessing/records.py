@@ -14,6 +14,7 @@ from typing import Any, Iterable, Sequence
 STATUS_VALID = "valid"
 STATUS_EXCLUDED = "excluded"
 STATUS_NOT_SELECTED = "not_selected"
+R_EXTERNAL_TEST = "external_test_exact_duplicate"  # internal copy of an official external test image
 
 
 @dataclass
