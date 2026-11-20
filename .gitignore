@@ -1,31 +1,35 @@
+
+# Python virtual environments
 venv/
+.venv/
+
+# Python generated files
 __pycache__/
-*.zip
-archive/
-Datasets/
-*.pdf
-*.doc
-*.docx
+*.py[cod]
 .ipynb_checkpoints/
 
-# Raw dataset and generated preprocessing outputs
+# Archives and generated files
+*.zip
+archive/
+
+# Datasets
+Datasets/
 data/*
+
+# Keep data documentation only
 !data/README.md
-!data/processed/
-data/processed/*
 
-# Keep reproducible preprocessing evidence
-!data/processed/manifests/
-!data/processed/metadata/
-!data/processed/reports/
+# Ignore all generated preprocessing outputs
+data/processed/
 
-# Do not commit generated image data or logs
-data/processed/augmented/
-data/processed/reports/logs/
-data/processed/reports/duplicate_diagnostics/
-
-.venv/
 # Environment variables and secrets
 .env
 .env.*
 !.env.example
+
+# Documents
+*.pdf
+*.doc
+*.docx
+# Internal project notes and handoff documents
+docs/
