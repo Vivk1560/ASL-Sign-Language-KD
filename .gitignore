@@ -33,3 +33,5 @@ data/processed/
 *.docx
 # Internal project notes and handoff documents
 docs/
+model_weights/teacher_resnet50_best.pth
+.pytest_cache/
