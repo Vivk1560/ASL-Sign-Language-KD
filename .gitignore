@@ -35,3 +35,10 @@ data/processed/
 docs/
 model_weights/teacher_resnet50_best.pth
 .pytest_cache/
+
+# Partition 4: local checkpoints and generated deployment reports (never commit weights)
+student_output/
+teacher_output/
+deployment_reports/
+*.pth
+*.pth.tmp

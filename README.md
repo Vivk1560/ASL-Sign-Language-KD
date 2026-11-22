@@ -1,4 +1,4 @@
-# ASL Gesture Recognition Using Knowledge Distillation
+﻿# ASL Gesture Recognition Using Knowledge Distillation
 
 **Group 21 | B.Tech Information Technology | AISSMS IOIT**
 
@@ -56,20 +56,20 @@ The proposed system combines:
 
 ## Datasets
 
-### 1. ASL Alphabet Dataset — Kaggle
+### 1. ASL Alphabet Dataset â€” Kaggle
 
 **Source:** [ASL Alphabet Dataset by grassknoted](https://www.kaggle.com/datasets/grassknoted/asl-alphabet)
 
 The primary dataset contains 87,000 images distributed across 29 classes:
 
-- 26 English alphabet letters (A–Z).
+- 26 English alphabet letters (Aâ€“Z).
 - `del`
 - `nothing`
 - `space`
 
 It is used for dataset preparation, model training, validation, and internal testing.
 
-### 2. American Sign Language Letters — Roboflow
+### 2. American Sign Language Letters â€” Roboflow
 
 **Source:** [American Sign Language Letters Dataset](https://public.roboflow.com/object-detection/american-sign-language-letters/1)
 
@@ -83,13 +83,13 @@ The two datasets serve different purposes. The Kaggle dataset is the primary cla
 
 The system follows a teacher-student architecture:
 
-**Teacher Network — ResNet50**
+**Teacher Network â€” ResNet50**
 
 - A deeper convolutional neural network.
 - Learns visual features from ASL hand gesture images.
 - Provides soft-target predictions for knowledge distillation.
 
-**Student Network — MobileNetV2**
+**Student Network â€” MobileNetV2**
 
 - A lightweight convolutional neural network.
 - Designed for lower computational requirements.
@@ -187,14 +187,14 @@ Place the extracted Kaggle dataset in the repository's expected raw-data directo
 
 ```text
 data/
-└── raw/
-    ├── asl_alphabet_train/
-    │   └── asl_alphabet_train/
-    │       ├── A/
-    │       ├── B/
-    │       └── ...
-    └── asl_alphabet_test/
-        └── asl_alphabet_test/
+â””â”€â”€ raw/
+    â”œâ”€â”€ asl_alphabet_train/
+    â”‚   â””â”€â”€ asl_alphabet_train/
+    â”‚       â”œâ”€â”€ A/
+    â”‚       â”œâ”€â”€ B/
+    â”‚       â””â”€â”€ ...
+    â””â”€â”€ asl_alphabet_test/
+        â””â”€â”€ asl_alphabet_test/
 ```
 
 The preprocessing pipeline can also use a custom dataset location through its `--raw-dir` argument.
@@ -209,36 +209,121 @@ This command processes all 29 classes, regenerates preprocessing outputs, and re
 
 Generated manifests, metadata, and reports are written under `data/processed/`.
 
+## Partition 4: Inference, Comparison, Benchmarking and Webcam
+
+All deployment code lives in `deployment/` and reuses the Partition 2/3 model builders, checkpoint loaders and the
+exact validation/test `EvalTransform`. Full details: [`deployment/DEPLOYMENT_GUIDE.md`](deployment/DEPLOYMENT_GUIDE.md).
+
+> **Checkpoints are local artifacts and are not in Git.** The recovered student checkpoint is expected at
+> `student_output/student_mobilenetv2_kd_best.pth`. Every command below accepts an explicit path; the default can also be
+> set with the `ASL_STUDENT_CHECKPOINT` / `ASL_TEACHER_CHECKPOINT` environment variables.
+> `model_weights/teacher_best_aug.pth` and `model_weights/student_best_aug.pth` are **legacy** pre-Partition-2/3 files and
+> are refused by the deployment tools.
+
+### Single-image inference (no camera, no MediaPipe needed)
+
+```powershell
+python -m deployment.infer path\to\image.jpg --checkpoint student_output\student_mobilenetv2_kd_best.pth
+python -m deployment.infer a.jpg b.jpg --checkpoint student_output\student_mobilenetv2_kd_best.pth --json
+python -m deployment.infer --info --checkpoint student_output\student_mobilenetv2_kd_best.pth   # stored metadata only
+```
+
+### Webcam inference
+
+```powershell
+python -m deployment.webcam --checkpoint student_output\student_mobilenetv2_kd_best.pth
+```
+
+Keys: `q` / `Esc` quit, `m` toggle the (display-only) mirror. Options: `--camera 1` (other camera or a video file path),
+`--hand-detector auto|mediapipe|roi`, `--threshold 0.6`, `--smooth 5`, `--no-mirror`, `--no-window`, `--max-frames N`.
+
+- **MediaPipe is optional.** With a usable MediaPipe (`pip install mediapipe==0.10.14`, the pinned version) the hand is
+  detected and cropped. Otherwise the app uses a fixed **centre-ROI fallback** (a box you must put your hand in) and says so
+  on screen; in that mode no hand detection takes place.
+- "No hand detected" is a separate state and is never shown as the `nothing` class (which only appears when the model predicts it).
+- The model always receives the raw, un-mirrored frame; mirroring only affects the preview.
+- Camera access: grant camera permission to your terminal/Python (Windows: Settings > Privacy > Camera) and close other apps using the camera.
+
+### Teacher vs student comparison and benchmarking
+
+```powershell
+pip install -r requirements-train.txt     # scikit-learn is needed by the comparison metrics
+python -m deployment.compare --student-checkpoint student_output\student_mobilenetv2_kd_best.pth `
+    --teacher-checkpoint model_weights\teacher_resnet50_best.pth --split test
+python -m deployment.benchmark --student-checkpoint student_output\student_mobilenetv2_kd_best.pth `
+    --teacher-checkpoint model_weights\teacher_resnet50_best.pth --devices cpu cuda
+```
+
+Both write JSON (and, for `compare`, Markdown) into `deployment_reports/`. Benchmark numbers exist only after you run it on
+your machine; the repository contains none. The comparison reads the validation/internal-test split only, never the external test set.
+
+### Results (reported training/evaluation run)
+
+These are the figures reported by the project team for the recovered Kaggle student run. They are internal-split results
+and are **not** evidence of real-world or webcam accuracy.
+
+| Item | Value |
+|---|---|
+| Student best epoch | 7 (early stopping after 5 epochs without improvement) |
+| Student validation accuracy | 0.9999 |
+| Student internal-test accuracy / macro-F1 | 0.9995 / 0.9995 |
+| Teacher internal-test accuracy (reference) | 0.9998 |
+| Parameters (student / teacher) | approx. 2.26 M / 23.57 M (approx. 90.41% fewer) |
+| Student ImageNet pretrained weights | **not used** |
+
+Run `python -m deployment.compare ...` to regenerate teacher/student metrics from the actual checkpoints; no webcam,
+latency or CPU/GPU numbers are reported here until they have been measured.
+
+### Limitations (summary)
+
+- The model classifies **single static images**. **J** and **Z** are motion signs; a single frame cannot capture them, so
+  they are not genuinely recognised and no temporal gesture recognition is implemented.
+- This is **not** continuous ASL translation; it is a per-frame fingerspelling-alphabet classifier (26 letters plus `del`, `nothing`, `space`).
+- Internal-test accuracy comes from the same dataset distribution. Robustness to other backgrounds, lighting, skin tones,
+  hands and cameras has **not** been tested.
+
 ## Project Structure
 
 ```text
 ASL-Sign-Language-KD/
-│
-├── preprocessing/
-│   ├── config.py
-│   ├── data_cleaning.py
-│   ├── data_splitting.py
-│   ├── duplicate_detection.py
-│   ├── dataset_inspection.py
-│   ├── dataset_validation.py
-│   ├── external_test.py
-│   └── main.py
-│
-├── data/
-│   ├── raw/
-│   └── processed/
-│       ├── manifests/
-│       ├── metadata/
-│       └── reports/
-│
-├── tests/
-│
-├── requirements.txt
-├── requirements-train.txt
-└── README.md
+â”‚
+â”œâ”€â”€ preprocessing/
+â”‚   â”œâ”€â”€ config.py
+â”‚   â”œâ”€â”€ data_cleaning.py
+â”‚   â”œâ”€â”€ data_splitting.py
+â”‚   â”œâ”€â”€ duplicate_detection.py
+â”‚   â”œâ”€â”€ dataset_inspection.py
+â”‚   â”œâ”€â”€ dataset_validation.py
+â”‚   â”œâ”€â”€ external_test.py
+â”‚   â””â”€â”€ main.py
+â”‚
+â”œâ”€â”€ data/
+â”‚   â”œâ”€â”€ raw/
+â”‚   â””â”€â”€ processed/
+â”‚       â”œâ”€â”€ manifests/
+â”‚       â”œâ”€â”€ metadata/
+â”‚       â””â”€â”€ reports/
+â”‚
+â”œâ”€â”€ teacher_model/              # Partition 2 (ResNet50 teacher)
+â”œâ”€â”€ student_model/              # Partition 3 (MobileNetV2 student + knowledge distillation)
+â”‚
+â”œâ”€â”€ deployment/                 # Partition 4
+â”‚   â”œâ”€â”€ predictor.py            # checkpoint-backed Predictor (shared by all tools)
+â”‚   â”œâ”€â”€ infer.py                # single-image CLI
+â”‚   â”œâ”€â”€ webcam.py               # webcam / video demo
+â”‚   â”œâ”€â”€ compare.py              # teacher vs student evaluation
+â”‚   â””â”€â”€ benchmark.py            # latency / throughput benchmark
+â”‚
+â”œâ”€â”€ deployment/DEPLOYMENT_GUIDE.md
+â”œâ”€â”€ tests/
+â”œâ”€â”€ asl_mediapipe_final.py      # LEGACY (see below)
+â”‚
+â”œâ”€â”€ requirements.txt
+â”œâ”€â”€ requirements-train.txt
+â””â”€â”€ README.md
 ```
 
-Additional model-training, evaluation, and inference modules will be documented here as they are implemented and integrated.
+`asl_mediapipe_final.py` is a **LEGACY** prototype from before Partitions 2-3. It defines its own 26-class model wrappers, loads raw `state_dict` files (`model_weights/*_best_aug.pth`) and duplicates preprocessing. It is kept untouched for reference only; use `deployment/` instead.
 
 ## Current Implementation Status
 
@@ -249,11 +334,12 @@ Additional model-training, evaluation, and inference modules will be documented 
 - [x] External test isolation.
 - [x] Reproducible manifests and preprocessing reports.
 - [x] Automated preprocessing tests.
-- [ ] ResNet50 teacher model training.
-- [ ] MobileNetV2 student baseline training.
-- [ ] Knowledge distillation implementation and evaluation.
-- [ ] Final model comparison and performance evaluation.
-- [ ] Webcam-based real-time inference integration.
+- [x] ResNet50 teacher model training (Partition 2).
+- [x] MobileNetV2 student training with knowledge distillation (Partition 3; student retrained, checkpoints held locally).
+- [x] Student inference, teacher-vs-student comparison and benchmarking code (Partition 4, covered by automated tests).
+- [ ] Teacher-vs-student comparison executed on the recovered checkpoints (pending a local run).
+- [ ] Benchmarks executed on target hardware (pending a local run).
+- [ ] Webcam application verified with a real camera and the recovered checkpoint (pending; only code-level and synthetic-video checks exist).
 
 ## Future Scope
 
@@ -265,6 +351,7 @@ Additional model-training, evaluation, and inference modules will be documented 
 
 ## Contributors
 
-**Group 21 — B.Tech Information Technology**
+**Group 21 â€” B.Tech Information Technology**
 AISSMS Institute of Information Technology (AISSMS IOIT)
+
 
